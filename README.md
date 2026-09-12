@@ -26,8 +26,9 @@ no browser equivalent - capture, preprocessing, playback - and it works with any
 **`Dissonance4Web.Mirror`** is the Dissonance integration for Mirror: the successor to
 Dissonance's own `MirrorIgnorance` integration, which was named when Ignorance was the only
 Mirror transport offering both a reliable and an unreliable channel. It is transport agnostic -
-it asks Mirror for channel 3 reliably and channel 4 unreliably and does not care how - but a
-browser needs a transport that can actually deliver both, which today means WebTransport.
+it asks Mirror for one channel delivered reliably and another delivered as datagrams, and does not
+care how - but a browser needs a transport that can actually deliver both, which today means
+WebTransport.
 
 The second one is gated on Mirror's `MIRROR` define, so a project on another networking library
 gets the browser audio half and no compile errors from the half it has no use for.
@@ -48,7 +49,12 @@ See `Documentation~/Architecture.md` for what each part does and why.
 **1. Install the package.** Add it through the package manager with this repository's URL, or drop
 the folder under `Packages/` in your project.
 
-**2. Patch Dissonance.** Run **Tools > Dissonance 4 Web > Patch Dissonance For Web**.
+**2. Patch Dissonance.** The editor offers to do this the first time it loads the package. If you
+declined, or want to run it again: **Tools > Dissonance 4 Web > Patch Dissonance For Web**.
+
+Until it is applied, `Dissonance4Web` does not compile - it implements an interface Dissonance
+keeps internal - so expect "inaccessible due to its protection level" errors up to that point. The
+patcher lives in an assembly of its own that references nothing, so the menu is there regardless.
 
 Three edits to Dissonance's own source are unavoidable, and the patcher reports exactly what it
 changed. The short version: Dissonance's preprocessing pipeline runs on a thread a WebGL player
@@ -79,14 +85,16 @@ with - a mismatch there fails the build with errors that do not say so. See `Nat
 **4. Set up the scene.**
 
 * On the `NetworkManager` object, add **Web Transport Transport** and assign it to `Transport`.
-* Extend the transport's **Channels** list to five entries and set them to
-  `Reliable, Unreliable, Unreliable, Reliable, Unreliable`. Mirror reserves channel 3 and 4 for
-  Dissonance, and a channel past the end of that list is delivered reliably - which leaves voice
-  retransmitted and head-of-line blocked. Dissonance logs a warning at startup if it finds this
-  wrong.
 * On the object carrying `DissonanceComms`, add **Mirror WTransport Comms Network** and
   **Dissonance Web Audio**.
 * On the player prefab, add **Mirror WTransport Player** for positional voice.
+
+That is all the channel setup there is, because the comms network defaults to Mirror's own two
+channels - reliable (0) for session setup and text, unreliable (1) for voice - and every transport
+already delivers those correctly. **Reliable Channel** and **Unreliable Channel** on the comms
+network give Dissonance ids of its own instead, if you would rather voice was batched and accounted
+for separately; the inspector then says what your transport needs, and Dissonance checks it at
+startup.
 
 `Dissonance Web Audio` does nothing outside a WebGL player, so leave it in the scene for every
 build target; one scene serves desktop and web.
@@ -104,7 +112,7 @@ getUserMedia
   -> resample to 48kHz, 480 frames
   -> Opus encode   (WebAssembly)
   -> Dissonance packet
-  -> Mirror channel 4
+  -> Mirror unreliable channel
   -> WebTransport datagram  ----------->  relayed by                                
                                           Dissonance's                              
                                           routing table   -----------> Opus decode (native)

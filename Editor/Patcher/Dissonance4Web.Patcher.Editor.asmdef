@@ -1,12 +1,7 @@
 {
-    "name": "Dissonance4Web.Editor",
+    "name": "Dissonance4Web.Patcher.Editor",
     "rootNamespace": "Dissonance.Web.Editor",
-    "references": [
-        "DissonanceVoip",
-        "DissonanceVoipEditor",
-        "Dissonance4Web",
-        "Dissonance4Web.Patcher.Editor"
-    ],
+    "references": [],
     "includePlatforms": [
         "Editor"
     ],

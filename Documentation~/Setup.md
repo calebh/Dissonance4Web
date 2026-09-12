@@ -14,7 +14,16 @@ MirrorWTransport setup; those two have their own documentation and it still appl
 
 ## 2. Patch Dissonance
 
-**Tools > Dissonance 4 Web > Patch Dissonance For Web.**
+The editor offers this the first time it loads the package, and again on each restart until it is
+done. To run it by hand: **Tools > Dissonance 4 Web > Patch Dissonance For Web.**
+
+Until the patches are applied `Dissonance4Web` does not compile, because it implements an interface
+Dissonance keeps internal, so a fresh install starts with a handful of "inaccessible due to its
+protection level" errors. They go away with the patch. The patcher is in an assembly that
+references nothing, so its menu items are available whatever else in the project is broken.
+
+**Tools > Dissonance 4 Web > Check Patches On Startup** turns the prompt off if you would rather
+not be asked; the console warning stays either way.
 
 The console reports what changed. Re-run it after any Dissonance update; **Check Patches** says
 whether it is needed. `CorePatches.md` explains each edit.
@@ -43,23 +52,11 @@ Rebuild it after upgrading Unity to a version with a different bundled Emscripte
 Add **Web Transport Transport** to the `NetworkManager` object and assign it to `Transport`. If the
 project already has a transport, use Mirror's Multiplex Transport.
 
-Then extend the transport's **Channels** list to **five** entries:
+The transport's **Channels** list needs nothing done to it, because Dissonance defaults to Mirror's
+own two channels and every transport already delivers those correctly. Step 5 covers giving
+Dissonance channels of its own, if you want that.
 
-| Index | Channel | Delivery |
-| --- | --- | --- |
-| 0 | `Reliable` | Reliable |
-| 1 | `Unreliable` | Unreliable |
-| 2 | (your own, if any) | as you need |
-| 3 | `DissonanceReliable` | **Reliable** |
-| 4 | `DissonanceUnreliable` | **Unreliable** |
-
-This is the step most likely to be missed, and the symptom does not point at it. A channel id past
-the end of the list is delivered reliably, which is the safe default in general and wrong for
-voice: voice would be retransmitted and head-of-line blocked, so on a lossy connection it drifts
-further and further behind the game instead of dropping a word. Dissonance logs a warning at
-startup when it finds this, but only for transports that can be asked.
-
-While here, two size settings are worth a look. Dissonance never emits a packet larger than 1024
+One size setting is worth a look while here. Dissonance never emits a packet larger than 1024
 bytes, and Mirror adds a little around it, so `Unreliable Max Message Size` needs to be at least
 about 1040. The default of 1024 is marginal; 1200 is a safe value that still fits a QUIC datagram.
 In practice a voice packet is nearer 150 bytes.
@@ -73,6 +70,42 @@ On the game object carrying `DissonanceComms`:
 
 Remove `MirrorIgnoranceCommsNetwork` if the project had it; two comms networks on one object will
 not work.
+
+### Channels
+
+**Mirror WTransport Comms Network** has two settings, and the defaults are the ones most projects
+want:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `Reliable Channel` | 0 (`Channels.Reliable`) | Session setup, room membership, text chat. Must be reliable and ordered. |
+| `Unreliable Channel` | 1 (`Channels.Unreliable`) | Voice. Must be datagrams. |
+
+Mirror describes channels as plain ints rather than an enum so that a project can add its own,
+which means there is no id reserved for Dissonance to claim - so it shares Mirror's two by default.
+That costs nothing in particular: a channel id selects a delivery mode, and Mirror keeps messages
+within a channel apart by message id. It also means there is nothing to configure, on any
+transport.
+
+Give Dissonance ids of its own if you would rather voice was batched and accounted for separately
+from the rest of the game's traffic. Two things then have to line up:
+
+* The transport has to know about the new ids. MirrorWTransport's **Channels** list is indexed by
+  channel id, and **an id past the end of that list is delivered reliably** - safe in general, and
+  wrong for voice, because voice would be retransmitted and head-of-line blocked and would drift
+  further and further behind the game on a lossy connection. So extend the list to cover the
+  highest id you use.
+* The ids must not collide with any other channel the project defines.
+
+The comms network inspector spells out what your transport needs for whatever ids you set, and
+Dissonance re-checks it at startup - for transports that report their channel delivery, which
+MirrorWTransport does.
+
+From code, the same two settings are `ReliableChannel` and `UnreliableChannel` on the component,
+and `DissonanceChannels.DefaultReliable` / `DefaultUnreliable` are the defaults. Set them before
+Dissonance connects.
+
+### Web audio
 
 `Dissonance Web Audio` does nothing at all outside a WebGL player - it checks the runtime platform,
 not the build target - so leave it in place for every build. One scene serves desktop and web.
@@ -184,9 +217,10 @@ picker shown before the prompt works but reads poorly. Showing it after is bette
 
 ## Troubleshooting
 
-**Voice works desktop-to-desktop but not to or from the browser.** Check the transport's Channels
-list has five entries (step 4). Then check the browser console for
-`[Dissonance4Web] audio worklet ready`; without it the page is not a secure context.
+**Voice works desktop-to-desktop but not to or from the browser.** Check the browser console for
+`[Dissonance4Web] audio worklet ready`; without it the page is not a secure context. This is an
+audio problem rather than a networking one - the browser is connected, or Mirror itself would not
+be working either.
 
 **The browser console says the AudioWorklet module could not be loaded.** The page is not on https
 or localhost. `AudioWorklet` does not exist in an insecure context.
@@ -197,8 +231,13 @@ a click or a key press yet. Browsers start audio suspended. Call
 something.
 
 **Voice from the browser is choppy on the desktop side.** Look at
-`Unreliable Max Message Size` and at the Channels list; a Dissonance packet dropped for being
-oversized is logged by the transport.
+`Unreliable Max Message Size`; a Dissonance packet dropped for being oversized is logged by the
+transport.
+
+**Voice latency grows the longer a lossy connection lasts, instead of dropping words.** Voice is
+being delivered reliably. If `Unreliable Channel` has been changed from the default, the transport
+needs a matching entry in its channel list - the comms network inspector says which - because an id
+past the end of that list is delivered reliably. Dissonance logs a warning about this at startup.
 
 **Voice into the browser is choppy.** Raise `Target Buffer Ms` on the `WebVoicePlayback` component
 (assign a `Web Playback Prefab` to get at it). The default 70ms covers a 30fps frame with room to
@@ -211,3 +250,9 @@ normally catches the missing case before the build starts.
 
 **A `DissonanceComms` error about no preprocessing pipeline being available.** The
 `DissonanceWebAudio` component is not on the same game object as `DissonanceComms`.
+
+**"inaccessible due to its protection level" errors, and no Tools > Dissonance 4 Web menu.** The
+menu is in `Dissonance4Web.Patcher.Editor`, which references nothing and so should compile whatever
+else is broken. If it is genuinely absent, Unity has not imported the package's Editor folder at
+all - check the Console for an assembly definition error, and that
+`Editor/Patcher/Dissonance4Web.Patcher.Editor.asmdef` came through the install.

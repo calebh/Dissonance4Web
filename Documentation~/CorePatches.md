@@ -3,8 +3,14 @@
 Four edits to Dissonance's own source. Three are required for a browser to work at all; the
 fourth only stops a misleading error in the log.
 
+The editor offers to apply them the first time it loads the package, and on each restart until it
+is done; **Tools > Dissonance 4 Web > Check Patches On Startup** turns that prompt off.
+
 **Tools > Dissonance 4 Web > Patch Dissonance For Web** applies them all, **Check Patches**
-reports which are in place, and **Revert Patches** puts the files back. Each is anchored to an
+reports which are in place, and **Revert Patches** puts the files back. These live in
+`Dissonance4Web.Patcher.Editor`, an assembly that references nothing at all - so they are available
+in a project where the rest of the package does not compile, which is the state every unpatched
+install is in. Each is anchored to an
 exact piece of the original text, so a Dissonance version this was not written against is reported
 rather than mangled - in which case apply the edit from this document by hand.
 

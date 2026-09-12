@@ -59,13 +59,13 @@ namespace Dissonance.Integrations.MirrorWTransport
 
         protected override void SendReliable(ArraySegment<byte> packet)
         {
-            if (!Send(packet, DissonanceChannels.Reliable))
+            if (!Send(packet, _network.ReliableChannel))
                 FatalError("Failed to send a reliable Dissonance packet through Mirror");
         }
 
         protected override void SendUnreliable(ArraySegment<byte> packet)
         {
-            Send(packet, DissonanceChannels.Unreliable);
+            Send(packet, _network.UnreliableChannel);
         }
 
         /// <returns>false only if sending failed in a way worth killing the session over.</returns>

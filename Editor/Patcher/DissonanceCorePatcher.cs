@@ -262,6 +262,43 @@ namespace Dissonance.Web.Editor
             return problems.Count == 0;
         }
 
+        /// <summary>
+        /// Whether Dissonance itself is in this project at all.
+        /// </summary>
+        /// <remarks>
+        /// Distinguishes "not patched yet" from "nothing to patch", so the setup
+        /// prompt does not nag a project that has not installed Dissonance.
+        /// </remarks>
+        public static bool DissonanceIsInstalled()
+        {
+            foreach (var patch in Patches)
+            {
+                if (!patch.Optional && FindFile(patch.FileName) == null)
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// True when every required patch can be applied cleanly right now, so the
+        /// setup prompt can offer a button rather than a document to read.
+        /// </summary>
+        public static bool CanApplyAutomatically()
+        {
+            foreach (var patch in Patches)
+            {
+                if (patch.Optional)
+                    continue;
+
+                var state = StateOf(patch, out _);
+                if (state != PatchState.Applied && state != PatchState.NotApplied)
+                    return false;
+            }
+
+            return true;
+        }
+
         private static PatchState StateOf(Patch patch, out string path)
         {
             path = FindFile(patch.FileName);

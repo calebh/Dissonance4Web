@@ -5,19 +5,36 @@ using Mirror;
 namespace Dissonance.Integrations.MirrorWTransport
 {
     /// <summary>
-    /// The Mirror channel ids Dissonance traffic travels on, and a startup check
-    /// that the active transport really delivers them the way Dissonance needs.
+    /// Defaults and startup checks for the two Mirror channels Dissonance traffic
+    /// travels on.
     /// </summary>
     /// <remarks>
     /// Dissonance wants two channels with different delivery guarantees: session
     /// setup, room membership and text chat go reliably, voice goes unreliably.
-    /// Mirror exposes channels as plain ints so a project can add its own; the
-    /// two ids used here are the ones Mirror reserves for Dissonance.
+    /// Mirror describes channels as plain ints rather than an enum precisely so a
+    /// project can add its own, and which ids Dissonance should use is therefore a
+    /// project's decision, not this package's - see
+    /// <see cref="MirrorWTransportCommsNetwork.ReliableChannel"/>.
+    ///
+    /// The defaults are Mirror's own two channels, which need no configuration
+    /// anywhere: stock Mirror defines them and every transport already delivers
+    /// them correctly. Sharing them with the rest of the game's traffic costs
+    /// nothing in particular - a channel selects a delivery mode, and Mirror
+    /// separates messages within one by message id - so a project only needs
+    /// dedicated ids if it wants voice accounted for or batched separately.
     /// </remarks>
     public static class DissonanceChannels
     {
-        public const int Reliable = Channels.DissonanceReliable;
-        public const int Unreliable = Channels.DissonanceUnreliable;
+        /// <summary>
+        /// Default channel for Dissonance's reliable traffic: Mirror's own
+        /// reliable channel.
+        /// </summary>
+        public const int DefaultReliable = Channels.Reliable;
+
+        /// <summary>
+        /// Default channel for voice: Mirror's own unreliable channel.
+        /// </summary>
+        public const int DefaultUnreliable = Channels.Unreliable;
 
         /// <summary>
         /// Largest Dissonance packet, plus what Mirror adds around it: a varint
@@ -35,16 +52,25 @@ namespace Dissonance.Integrations.MirrorWTransport
         }
 
         /// <summary>
-        /// Warn once about a transport configuration that will hurt voice, and do
-        /// it loudly: the symptoms - voice that drifts further and further behind
-        /// the game, or stops entirely on a lossy connection - do not point at
-        /// the transport's channel list on their own.
+        /// Warn once about a channel configuration that will hurt voice, and do it
+        /// loudly: the symptoms - voice that drifts further and further behind the
+        /// game, or stops entirely on a lossy connection - do not point at a
+        /// channel id on their own.
         /// </summary>
-        internal static void CheckActiveTransport()
+        internal static void CheckActiveTransport(int reliable, int unreliable)
         {
             if (_checked)
                 return;
             _checked = true;
+
+            if (reliable == unreliable)
+            {
+                Log.Error(
+                    $"Dissonance is set to send both its reliable traffic and its voice on channel {reliable}. They need different " +
+                    "delivery guarantees, so these have to be two different channels."
+                );
+                return;
+            }
 
             var transport = Transport.active;
             if (transport == null)
@@ -53,9 +79,9 @@ namespace Dissonance.Integrations.MirrorWTransport
                 return;
             }
 
-            CheckDelivery(transport);
-            CheckPacketSize(transport, Reliable, "reliable");
-            CheckPacketSize(transport, Unreliable, "unreliable");
+            CheckDelivery(transport, reliable, unreliable);
+            CheckPacketSize(transport, reliable, "reliable");
+            CheckPacketSize(transport, unreliable, "unreliable");
         }
 
         private static void CheckPacketSize(Transport transport, int channel, string description)
@@ -92,7 +118,7 @@ namespace Dissonance.Integrations.MirrorWTransport
         /// probed by name, which keeps this assembly free of a dependency on any
         /// one transport. A transport that says nothing is left alone.
         /// </remarks>
-        private static void CheckDelivery(Transport transport)
+        private static void CheckDelivery(Transport transport, int reliable, int unreliable)
         {
             var name = transport.GetType().Name;
 
@@ -107,8 +133,8 @@ namespace Dissonance.Integrations.MirrorWTransport
             if (probe == null || probe.ReturnType != typeof(bool))
             {
                 Log.Debug(
-                    $"Transport '{name}' does not report per channel delivery. Check by hand that channel {Reliable} is reliable " +
-                    $"and channel {Unreliable} is unreliable."
+                    $"Transport '{name}' does not report per channel delivery. Check by hand that channel {reliable} is reliable " +
+                    $"and channel {unreliable} is unreliable."
                 );
                 return;
             }
@@ -117,8 +143,8 @@ namespace Dissonance.Integrations.MirrorWTransport
             bool unreliableIsReliable;
             try
             {
-                reliableIsReliable = (bool)probe.Invoke(transport, new object[] { Reliable });
-                unreliableIsReliable = (bool)probe.Invoke(transport, new object[] { Unreliable });
+                reliableIsReliable = (bool)probe.Invoke(transport, new object[] { reliable });
+                unreliableIsReliable = (bool)probe.Invoke(transport, new object[] { unreliable });
             }
             catch (Exception ex)
             {
@@ -129,7 +155,7 @@ namespace Dissonance.Integrations.MirrorWTransport
             if (!reliableIsReliable)
             {
                 Log.Error(
-                    $"Transport '{name}' delivers channel {Reliable} unreliably, but Dissonance needs it reliable for session setup, rooms " +
+                    $"Transport '{name}' delivers channel {reliable} unreliably, but Dissonance needs it reliable for session setup, rooms " +
                     "and text chat. Voice will fail to start for some players."
                 );
             }
@@ -137,10 +163,10 @@ namespace Dissonance.Integrations.MirrorWTransport
             if (unreliableIsReliable)
             {
                 Log.Warn(
-                    $"Transport '{name}' delivers channel {Unreliable} reliably. Dissonance sends voice on it and expects datagrams, so voice " +
-                    "will be retransmitted and head of line blocked, drifting further behind the longer a lossy connection lasts. Configure " +
-                    $"the transport so channel {Unreliable} is unreliable (for MirrorWTransport, extend the Channels list to {Unreliable + 1} " +
-                    $"entries and set element {Unreliable} to Unreliable)."
+                    $"Transport '{name}' delivers channel {unreliable} reliably. Dissonance sends voice on it and expects datagrams, so voice " +
+                    "will be retransmitted and head of line blocked, drifting further behind the longer a lossy connection lasts. Either " +
+                    $"point Dissonance at a channel the transport delivers unreliably, or configure channel {unreliable} to be unreliable " +
+                    $"(for MirrorWTransport, extend its Channels list to {unreliable + 1} entries and set element {unreliable} to Unreliable)."
                 );
             }
         }

@@ -18,10 +18,10 @@ namespace Dissonance.Integrations.MirrorWTransport
     /// browser join the same voice session as a desktop player.
     ///
     /// Nothing here is specific to WebTransport. The integration needs a transport
-    /// that delivers <see cref="DissonanceChannels.Reliable"/> reliably and
-    /// <see cref="DissonanceChannels.Unreliable"/> as datagrams, and - if browsers
-    /// are to join - one that works in a WebGL build.
-    /// <see cref="DissonanceChannels"/> checks the first of those at startup.
+    /// that delivers <see cref="ReliableChannel"/> reliably and
+    /// <see cref="UnreliableChannel"/> as datagrams, and - if browsers are to join
+    /// - one that works in a WebGL build. <see cref="DissonanceChannels"/> checks
+    /// the first of those at startup.
     ///
     /// A browser can only ever be a client. Browsers cannot listen for
     /// WebTransport sessions, so Mirror cannot host a server in a WebGL build and
@@ -33,6 +33,77 @@ namespace Dissonance.Integrations.MirrorWTransport
     public class MirrorWTransportCommsNetwork
         : BaseCommsNetwork<MirrorWTransportServer, MirrorWTransportClient, MirrorConn, Unit, Unit>
     {
+        [SerializeField]
+        [Tooltip("Mirror channel for session setup, room membership and text chat. Must be delivered reliably and in order. Defaults to Mirror's own reliable channel (0), which needs no configuration anywhere.")]
+        private int _reliableChannel = DissonanceChannels.DefaultReliable;
+
+        [SerializeField]
+        [Tooltip("Mirror channel for voice. Must be delivered unreliably: retransmitting late voice is worse than dropping it. Defaults to Mirror's own unreliable channel (1), which needs no configuration anywhere.")]
+        private int _unreliableChannel = DissonanceChannels.DefaultUnreliable;
+
+        /// <summary>
+        /// Mirror channel carrying session setup, room membership and text chat.
+        /// Must be delivered reliably and in order.
+        /// </summary>
+        /// <remarks>
+        /// Defaults to <see cref="Channels.Reliable"/>. Mirror describes channels
+        /// as plain ints rather than an enum so a project can add its own, so
+        /// there is no id reserved for Dissonance to claim; give it one of your own
+        /// if you would rather voice was accounted for or batched separately from
+        /// the rest of the game's traffic, and configure the transport to match.
+        ///
+        /// Read on every send, so change it before Dissonance connects. Changing
+        /// it during a session would reorder traffic mid-stream.
+        /// </remarks>
+        public int ReliableChannel
+        {
+            get => _reliableChannel;
+            set => SetChannel(ref _reliableChannel, value, nameof(ReliableChannel));
+        }
+
+        /// <summary>
+        /// Mirror channel carrying voice. Must be delivered unreliably.
+        /// </summary>
+        /// <inheritdoc cref="ReliableChannel" path="/remarks"/>
+        public int UnreliableChannel
+        {
+            get => _unreliableChannel;
+            set => SetChannel(ref _unreliableChannel, value, nameof(UnreliableChannel));
+        }
+
+        private void SetChannel(ref int field, int value, string name)
+        {
+            if (field == value)
+                return;
+
+            if (value < 0)
+                throw new ArgumentOutOfRangeException(name, $"A Mirror channel id cannot be negative, but {value} was given");
+
+            if (Mode != NetworkMode.None)
+            {
+                Log.Warn(
+                    $"{name} was changed to {value} while a voice session is running. Packets already in flight were sent on channel " +
+                    $"{field}, so ordering across the change is not guaranteed. Set the channel before connecting."
+                );
+            }
+
+            field = value;
+            DissonanceChannels.ResetCheck();
+        }
+
+        /// <summary>
+        /// Keeps the serialized ids sane, and makes the startup check run again
+        /// after they are edited in the inspector - which writes the fields
+        /// directly and so does not go through the properties above.
+        /// </summary>
+        private void OnValidate()
+        {
+            _reliableChannel = Mathf.Max(0, _reliableChannel);
+            _unreliableChannel = Mathf.Max(0, _unreliableChannel);
+
+            DissonanceChannels.ResetCheck();
+        }
+
         /// <summary>
         /// Packets the local server sent to the local client, waiting to be
         /// delivered on the next frame.
@@ -79,7 +150,7 @@ namespace Dissonance.Integrations.MirrorWTransport
 
                     if (Mode.IsServerEnabled() != server || Mode.IsClientEnabled() != client)
                     {
-                        DissonanceChannels.CheckActiveTransport();
+                        DissonanceChannels.CheckActiveTransport(_reliableChannel, _unreliableChannel);
 
                         if (server && client)
                             RunAsHost(Unit.None, Unit.None);

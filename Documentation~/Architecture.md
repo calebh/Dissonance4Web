@@ -162,17 +162,46 @@ Writing the integration for that other library means the same few hundred lines 
 against `BaseCommsNetwork`, `BaseServer` and `BaseClient`, with nothing browser specific in it;
 `Dissonance4Web.Mirror` is a working example of the shape.
 
-Four assemblies in total, then: `Dissonance4Web`, `Dissonance4Web.Mirror`, and an editor assembly
-for each.
+Five assemblies in total: `Dissonance4Web`, `Dissonance4Web.Mirror`, an editor assembly for each,
+and `Dissonance4Web.Patcher.Editor`.
+
+That last one references nothing - not Dissonance, not the rest of this package - and that is
+deliberate. It carries the core patcher, and the patcher has to be usable in a project where
+`Dissonance4Web` does not compile, because *not compiling* is exactly the state an unpatched
+install is in. An editor assembly that referenced the broken one would be skipped along with it,
+which would leave the Tools menu missing precisely when it is needed. The build check lives there
+too, for the same reason: a check that disappears whenever the build is going to fail is no check
+at all.
+
+### Channels are the project's to choose
+
+Mirror describes channels as plain ints rather than an enum, with a comment saying why: so that a
+project can add its own. That cuts both ways - there is no id reserved for Dissonance, and a
+package has no business claiming one, because whichever id it picked might already be a project's
+own channel.
+
+So the two ids are settings on `MirrorWTransportCommsNetwork` -`ReliableChannel` and
+`UnreliableChannel`, serialized and drawn in the inspector - and they default to
+`Channels.Reliable` and `Channels.Unreliable`, Mirror's own two. Sharing those with the rest of the
+game's traffic costs nothing in particular: a channel id selects a delivery mode, and Mirror keeps
+messages within a channel apart by message id. What it buys is that the defaults need no
+configuration on any transport, and work against stock Mirror.
+
+A project that wants voice batched and accounted for separately points them at ids of its own and
+extends the transport's channel list to match. The inspector spells out what that list needs, since
+the consequence of getting it wrong is subtle: MirrorWTransport delivers an id past the end of its
+list *reliably*, which is the right default in general and wrong for voice, and shows up as voice
+drifting further behind the game the longer a lossy connection lasts rather than as anything that
+looks like a misconfiguration.
 
 ### How transport agnostic is it, really
 
-The integration names no transport. It asks Mirror to deliver `Channels.DissonanceReliable` (3)
-reliably and `Channels.DissonanceUnreliable` (4) unreliably, and Mirror's `Transport` base class
-has no API to ask a transport whether it will. `DissonanceChannels` therefore probes for an
-`IsReliableChannel(int)` method by name - which MirrorWTransport has - and warns when the answer
-is wrong. A transport that does not expose one is left alone with a debug line saying so. So:
-transport agnostic in what it requires, and able to check only with transports that will answer.
+The integration names no transport. It asks Mirror to deliver one channel reliably and another as
+datagrams, and Mirror's `Transport` base class has no API to ask a transport whether it will.
+`DissonanceChannels` therefore probes for an `IsReliableChannel(int)` method by name - which
+MirrorWTransport has - and warns when the answer is wrong. A transport that does not expose one is
+left alone with a debug line saying so. So: transport agnostic in what it requires, and able to
+check only with transports that will answer.
 
 What is *not* agnostic is the practical set of transports a browser can use. A WebGL client needs
 a transport that offers an unreliable channel in a browser, and WebSockets cannot; that is what
