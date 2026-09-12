@@ -1,0 +1,20 @@
+{
+  "name": "com.placeholder.dissonance4web",
+  "version": "0.1.0",
+  "displayName": "Dissonance 4 Web",
+  "description": "Browser (WebGL) support for Dissonance Voice Chat, plus a Mirror integration that runs over MirrorWTransport. Web clients and desktop clients share one Opus voice session with no transcoding anywhere in the path.",
+  "unity": "6000.0",
+  "keywords": [
+    "dissonance",
+    "voice",
+    "voip",
+    "mirror",
+    "webgl",
+    "webtransport",
+    "opus"
+  ],
+  "author": {
+    "name": "Caleb Helbling"
+  },
+  "dependencies": {}
+}

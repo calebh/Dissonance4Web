@@ -1,0 +1,20 @@
+{
+    "name": "Dissonance4Web.Editor",
+    "rootNamespace": "Dissonance.Web.Editor",
+    "references": [
+        "DissonanceVoip",
+        "DissonanceVoipEditor",
+        "Dissonance4Web"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

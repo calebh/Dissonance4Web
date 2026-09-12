@@ -1,0 +1,24 @@
+{
+    "name": "Dissonance4Web.Mirror.Editor",
+    "rootNamespace": "Dissonance.Web.Editor",
+    "references": [
+        "DissonanceVoip",
+        "DissonanceVoipEditor",
+        "Dissonance4Web",
+        "Dissonance4Web.Mirror",
+        "Mirror"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "MIRROR"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

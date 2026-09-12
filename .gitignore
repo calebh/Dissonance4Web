@@ -1,0 +1,10 @@
+# Build output from Native~/build-opus-wasm
+Native~/build/
+
+# The Opus archive is a build artifact, not source. Build it with
+# Native~/build-opus-wasm.ps1 (or .sh); see Native~/README.md.
+Runtime/Plugins/WebGL/libopus.a
+Runtime/Plugins/WebGL/libopus.a.meta
+
+# Unity
+*.meta.bak

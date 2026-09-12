@@ -1,0 +1,16 @@
+{
+    "name": "Dissonance4Web",
+    "rootNamespace": "Dissonance.Web",
+    "references": [
+        "DissonanceVoip"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
