@@ -93,8 +93,9 @@ archive matches the toolchain Unity will link it with. See `Native~/README.md`.
 **4. Set up the scene.**
 
 * On the `NetworkManager` object, add **Web Transport Transport** and assign it to `Transport`.
-* On the object carrying `DissonanceComms`, add **Mirror WTransport Comms Network** and
-  **Dissonance Web Audio**.
+* On the object carrying `DissonanceComms`, add **Dissonance Web Audio**. If you do not already have a
+**Mirror Ignorance Comms Network**, add **Mirror WTransport Comms Network**. You only need one of these.
+In my game I use a multiplex transport to support both of these transports, so I only have the Ignorance Comms.
 * On the player prefab, add **Mirror WTransport Player** for positional voice.
 
 That is all the channel setup there is, because the comms network defaults to Mirror's own two
