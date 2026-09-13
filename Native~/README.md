@@ -1,8 +1,9 @@
 # Building Opus for WebAssembly
 
-Dissonance runs Opus through a native library on every platform. There is no WebAssembly build in
-the box, so a browser needs one built here. This is the only manual step in installing
-Dissonance 4 Web, and it is a one-off.
+Dissonance runs Opus through a native library on every platform, and ships no WebAssembly build of
+it. This package includes one - `Runtime/Plugins/WebGL/libopus.a`, built with Emscripten 4.0.20,
+the version Unity 6000.5 and 6000.6 bundle - and these scripts rebuild it. Rebuild it when your
+Unity bundles a different Emscripten, or to move to a newer Opus.
 
 ```bash
 powershell -ExecutionPolicy Bypass -File Native~/build-opus-wasm.ps1
@@ -12,13 +13,28 @@ powershell -ExecutionPolicy Bypass -File Native~/build-opus-wasm.ps1
 ./Native~/build-opus-wasm.sh
 ```
 
-Both download upstream libopus, build it, and drop `libopus.a` into `Runtime/Plugins/WebGL/`.
-Unity imports it on the next domain reload and infers the WebGL platform from the folder name.
+Both download upstream libopus, build it, and replace `Runtime/Plugins/WebGL/libopus.a`. Unity
+reimports it on the next domain reload. The archive's `.meta` is committed alongside it and enables
+it for WebGL only; keep it that way, because the folder being named `WebGL` does not restrict
+anything on its own. Commit the rebuilt archive so everyone on the same Unity picks it up.
 
 ## What it needs
 
-**CMake on PATH.** That is all. Emscripten, LLVM, python and node all come from inside the Unity
-editor.
+**CMake and Ninja on PATH.** That is all. Emscripten, LLVM, python and node all come from inside
+the Unity editor.
+
+Ninja is required, not preferred, and the script says so and stops if it is missing. The
+alternative is worse than an error. Given no generator, CMake on Windows picks the newest Visual
+Studio, and a Visual Studio build compiles with the VS toolset instead of the toolchain file's
+compiler - so it builds Opus with MSVC, succeeds, and produces a `libopus.a` full of x64 objects.
+Unity imports that happily, and the WebGL build then fails at its link step with one
+`is neither Wasm object file nor LLVM bitcode` warning per object. Forcing Ninja makes the build
+use Emscripten on every host.
+
+Install it however suits: `winget install Ninja-build.Ninja`, `choco install ninja`,
+`brew install ninja`, `apt install ninja-build`, or the single executable from
+[ninja-build.org](https://ninja-build.org). Visual Studio's "C++ CMake tools for Windows" component
+also ships one, though not on PATH.
 
 **Network access**, unless `-OpusSource` / `--opus-source` points at a checkout you already have:
 
@@ -73,7 +89,14 @@ a WebGL build starts failing at the link step after an editor upgrade, rebuild t
 
 ## Verifying by hand
 
-The archive should define the Opus entry points Dissonance imports. With the editor's LLVM:
+The scripts already do this before publishing: they refuse to copy an archive unless every object in
+it is WebAssembly (`llvm-readobj --file-header` reports `Format: WASM`) and every Opus entry point
+Dissonance imports is defined. A failed check leaves any previously published `libopus.a` untouched.
+Unity's `Dissonance4WebBuildCheck` repeats the format check on whichever `libopus.a` is enabled for
+WebGL, and stops the build before it starts if that is not WebAssembly.
+
+To check by hand, the archive should define the Opus entry points Dissonance imports. With the
+editor's LLVM:
 
 ```bash
 "<Unity>/Editor/Data/PlaybackEngines/WebGLSupport/BuildTools/Emscripten/llvm/llvm-nm" \

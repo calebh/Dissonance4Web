@@ -28,7 +28,15 @@ not be asked; the console warning stays either way.
 The console reports what changed. Re-run it after any Dissonance update; **Check Patches** says
 whether it is needed. `CorePatches.md` explains each edit.
 
-## 3. Build Opus for WebAssembly
+## 3. Opus for WebAssembly
+
+The package includes a prebuilt `Runtime/Plugins/WebGL/libopus.a` and its `.meta`, compiled with
+Emscripten 4.0.20 - the version Unity 6000.5 and 6000.6 bundle. Check your editor's version in
+`<Unity>/Editor/Data/PlaybackEngines/WebGLSupport/BuildTools/Emscripten/emscripten/emscripten-version.txt`.
+If it matches, skip to step 4.
+
+If it does not - Unity 6000.2 and 6000.3 bundle 3.1.39 - rebuild the archive with your editor's
+toolchain:
 
 ```bash
 powershell -ExecutionPolicy Bypass -File Native~/build-opus-wasm.ps1
@@ -38,14 +46,18 @@ powershell -ExecutionPolicy Bypass -File Native~/build-opus-wasm.ps1
 ./Native~/build-opus-wasm.sh
 ```
 
-Needs CMake on PATH. Everything else - Emscripten, LLVM, python, node - comes from inside the
-Unity editor, which is deliberate: see `Native~/README.md`.
+Needs CMake and Ninja on PATH. Everything else - Emscripten, LLVM, python, node - comes from
+inside the Unity editor, which is deliberate: see `Native~/README.md`. Ninja is required rather
+than preferred: without it CMake on Windows builds with Visual Studio, which ignores Emscripten and
+produces an x64 archive the WebGL link step cannot use. The script stops if Ninja is missing, and
+checks that what it built really is WebAssembly before publishing it.
 
-The result is `Runtime/Plugins/WebGL/libopus.a`. Check the Plugin Inspector once and confirm the
-platform reads WebGL and nothing else; Unity infers that from the folder name, so it should
-already be right.
+The rebuilt archive replaces `Runtime/Plugins/WebGL/libopus.a`, and the committed `.meta` beside it
+keeps it enabled for WebGL only. Check the Plugin Inspector once and confirm the platform reads
+WebGL and nothing else. Every native plugin in this package must be WebGL-only - Unity does not
+infer that from the folder name, and a plugin enabled for desktop breaks the desktop build.
 
-Rebuild it after upgrading Unity to a version with a different bundled Emscripten.
+Rebuild it again after moving to a Unity version with a different bundled Emscripten.
 
 ## 4. The NetworkManager
 
@@ -247,6 +259,25 @@ underruns at debug level.
 **The WebGL build fails at the link step with undefined `opus_*` symbols.** `libopus.a` is missing
 or was built with a different Emscripten. Re-run the build script. `Dissonance4WebBuildCheck`
 normally catches the missing case before the build starts.
+
+**The link step warns `archive member 'opus.dir\Release\....obj' is neither Wasm object file nor
+LLVM bitcode`, once per Opus source file.** `libopus.a` was compiled for Windows, not WebAssembly.
+That happens when CMake uses its Visual Studio generator, which ignores the Emscripten toolchain.
+The build script forces Ninja and checks the result before publishing it, so re-run it with Ninja
+on PATH; it discards a build directory left configured for Visual Studio by itself.
+`Dissonance4WebBuildCheck` now inspects the archive's contents too, and stops a WebGL build before
+it starts if the archive is not WebAssembly.
+
+**A desktop build fails with `unresolved external symbol opus_encoder_ctl referenced in function
+dissonance_opus_encoder_ctl_in`.** `dissonance_opus_shim.c` has been compiled into a non-WebGL
+player. Unity compiles a C source plugin into every IL2CPP player its importer allows, and the
+folder being named `WebGL` does not restrict that; on desktop there is no static
+`opus_encoder_ctl` to link against, because desktop Opus lives in `opus.dll`. The package ships
+`.meta` files enabling its plugins for WebGL only, and the shim's body only compiles under
+Emscripten as a backstop, so this means an old copy of the package or a `.meta` that was
+regenerated. Update the package, then select `Runtime/Plugins/WebGL/dissonance_opus_shim.c` and
+confirm the Plugin Inspector shows WebGL and nothing else; if it does not, right-click it and
+choose **Reimport**.
 
 **A `DissonanceComms` error about no preprocessing pipeline being available.** The
 `DissonanceWebAudio` component is not on the same game object as `DissonanceComms`.

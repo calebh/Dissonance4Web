@@ -1,0 +1,4 @@
+# Shell scripts must keep LF line endings wherever they are checked out. With
+# core.autocrlf on, Git would otherwise hand Windows users a CRLF build script,
+# which bash in WSL or on Linux rejects with "$'\r': command not found".
+*.sh text eol=lf

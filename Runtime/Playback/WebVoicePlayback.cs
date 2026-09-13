@@ -60,7 +60,13 @@ namespace Dissonance.Web
 
         private IAudioOutputSubscriber[] _subscribers;
 
-        private Transform _listener;
+        /// <summary>
+        /// The listener every speaker spatialises against, and the frame it was
+        /// last resolved on. Shared, because there is only one listener and
+        /// resolving it once per speaker would be the same answer N times.
+        /// </summary>
+        private static AudioListener _listener;
+        private static int _listenerFrame = -1;
 
         public override float Amplitude => _arv;
 
@@ -284,9 +290,12 @@ namespace Dissonance.Web
                 return;
             }
 
-            var listener = FindListener();
+            var listener = ActiveListener;
             if (listener == null)
             {
+                // Nothing to be positional relative to - between scenes, usually.
+                // Playing at full volume rather than silencing the speaker: being
+                // briefly too loud beats disappearing mid-sentence.
                 WebAudioNative.D4W_OutSetGain(_handle, 1, 0);
                 return;
             }
@@ -306,20 +315,77 @@ namespace Dissonance.Web
             WebAudioNative.D4W_OutSetGain(_handle, gain, pan);
         }
 
-        private Transform FindListener()
+        /// <summary>
+        /// Transform of the AudioListener that is actually listening right now, or
+        /// null if nothing is.
+        /// </summary>
+        /// <remarks>
+        /// Resolved at most once a frame and shared by every speaker, because the
+        /// answer is the same for all of them and the search behind it is not free.
+        ///
+        /// The cached listener is re-checked rather than trusted. A listener stops
+        /// being the listener in three ways and only one of them makes the
+        /// reference null: the component can be disabled, its game object can be
+        /// deactivated, or it can be destroyed. The first two leave a perfectly
+        /// valid reference to something Unity is no longer listening through -
+        /// which is exactly what happens when a game switches cameras - so
+        /// <c>isActiveAndEnabled</c> is what decides, not a null check.
+        /// </remarks>
+        private static Transform ActiveListener
         {
-            if (_listener != null)
-                return _listener;
+            get
+            {
+                if (_listenerFrame != Time.frameCount)
+                {
+                    _listenerFrame = Time.frameCount;
 
-#if UNITY_2023_1_OR_NEWER
-            var listener = FindAnyObjectByType<AudioListener>();
+                    if (_listener == null || !_listener.isActiveAndEnabled)
+                        _listener = FindActiveListener();
+                }
+
+                return _listener == null ? null : _listener.transform;
+            }
+        }
+
+        private static AudioListener FindActiveListener()
+        {
+            // The sort mode argument was removed in 6000.5, and the overload
+            // without it did not exist before then, so both spellings are needed to
+            // cover the versions this package supports without a deprecation
+            // warning on either.
+#if UNITY_6000_5_OR_NEWER
+            var listeners = FindObjectsByType<AudioListener>(FindObjectsInactive.Exclude);
+#elif UNITY_2023_1_OR_NEWER
+            var listeners = FindObjectsByType<AudioListener>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
 #else
-            var listener = FindObjectOfType<AudioListener>();
+            var listeners = FindObjectsOfType<AudioListener>();
 #endif
-            if (listener != null)
-                _listener = listener.transform;
 
-            return _listener;
+            // Excluding inactive game objects is not enough on its own: a disabled
+            // component on an active object is still returned by the search.
+            for (var i = 0; i < listeners.Length; i++)
+            {
+                if (listeners[i].isActiveAndEnabled)
+                    return listeners[i];
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Drops the shared listener when play mode starts.
+        /// </summary>
+        /// <remarks>
+        /// Statics survive entering play mode when domain reloading is turned off,
+        /// and a listener from the previous session would otherwise be consulted
+        /// for one frame - on the off chance that the frame counter came back round
+        /// to the same value it was cached at.
+        /// </remarks>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetListenerCache()
+        {
+            _listener = null;
+            _listenerFrame = -1;
         }
 
         private static float AverageRectifiedValue(ArraySegment<float> samples)

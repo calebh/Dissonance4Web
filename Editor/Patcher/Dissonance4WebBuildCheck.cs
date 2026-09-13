@@ -1,10 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
-using UnityEngine;
 
 namespace Dissonance.Web.Editor
 {
@@ -13,11 +13,10 @@ namespace Dissonance.Web.Editor
     /// in a way that does not name its own cause.
     /// </summary>
     /// <remarks>
-    /// Two of these are worth stopping the build for. A missing libopus.a fails
-    /// at the Emscripten link step with a list of undefined symbols, and a missing
-    /// preprocessing patch fails at IL2CPP conversion or, worse, at runtime. Both
-    /// read as something being wrong with Unity rather than with the install, and
-    /// both are minutes into a build that will not finish.
+    /// Everything here would otherwise surface minutes into a build that cannot
+    /// finish, reading as something wrong with Unity rather than with the install:
+    /// a missing preprocessing patch at IL2CPP conversion or at runtime, and a
+    /// missing or foreign libopus.a at the Emscripten link step.
     /// </remarks>
     public class Dissonance4WebBuildCheck
         : IPreprocessBuildWithReport
@@ -39,52 +38,64 @@ namespace Dissonance.Web.Editor
                 );
             }
 
-            if (FindOpusArchive() == null)
-            {
-                problems.Add(
-                    "libopus.a is not in the project, so Opus has no WebAssembly build to link against and this build will fail at the " +
-                    "link step with undefined opus_* symbols. Build it with Native~/build-opus-wasm.ps1 (or .sh)."
-                );
-            }
+            CheckOpusArchive(problems);
 
             if (problems.Count == 0)
                 return;
 
-            var message = "Dissonance 4 Web is not ready for a WebGL build:\n\n" + string.Join("\n\n", problems);
-
             // Stopping here rather than letting the build run for several minutes
-            // and then fail at the link step with undefined symbols.
-            throw new BuildFailedException(message);
+            // and then fail at the link step.
+            throw new BuildFailedException("Dissonance 4 Web is not ready for a WebGL build:\n\n" + string.Join("\n\n", problems));
         }
 
         /// <summary>
-        /// Looks for the WebAssembly Opus archive anywhere Unity would pick it up.
+        /// Checks the libopus.a Unity will actually link into the player.
         /// </summary>
-        private static string FindOpusArchive()
+        /// <remarks>
+        /// Asks the plugin importers rather than searching folders. A package can
+        /// live anywhere on disk - a <c>file:</c> package is outside the project
+        /// altogether - and only the importer knows whether a given archive is
+        /// enabled for WebGL. That matters here: Dissonance ships an iOS libopus.a
+        /// of its own, which is the wrong architecture and must not count.
+        /// </remarks>
+        private static void CheckOpusArchive(List<string> problems)
         {
-            var roots = new List<string> { Application.dataPath };
+            var archives = PluginImporter.GetImporters(BuildTarget.WebGL)
+                .Select(importer => importer.assetPath)
+                .Where(path => string.Equals(Path.GetFileName(path), "libopus.a", StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
-            var packages = Path.Combine(Path.GetDirectoryName(Application.dataPath) ?? ".", "Packages");
-            if (Directory.Exists(packages))
-                roots.Add(packages);
-
-            // A package installed from git or the registry lives outside the
-            // project, under Library/PackageCache.
-            var cache = Path.Combine(Path.GetDirectoryName(Application.dataPath) ?? ".", "Library/PackageCache");
-            if (Directory.Exists(cache))
-                roots.Add(cache);
-
-            foreach (var root in roots)
+            if (archives.Count == 0)
             {
-                var match = Directory
-                    .GetFiles(root, "libopus.a", SearchOption.AllDirectories)
-                    .FirstOrDefault(path => path.Replace('\\', '/').Contains("/WebGL/"));
-
-                if (match != null)
-                    return match;
+                problems.Add(
+                    "No libopus.a is enabled for WebGL, so Opus has nothing to link against and the build would fail at the link step " +
+                    "with undefined opus_* symbols. Build it with Native~/build-opus-wasm.ps1 (or .sh); it lands in Runtime/Plugins/WebGL."
+                );
+                return;
             }
 
-            return null;
+            foreach (var assetPath in archives)
+            {
+                // Path.GetFullPath resolves a "Packages/..." asset path to wherever
+                // the package really is on disk.
+                var problem = WebGLArchiveInspector.DescribeProblem(Path.GetFullPath(assetPath));
+                if (problem == null)
+                    continue;
+
+                problems.Add(
+                    $"{assetPath} cannot be linked into a WebGL player: {problem}. The link step would warn \"neither Wasm object file " +
+                    "nor LLVM bitcode\" for each one and then fail. Rebuild it with Native~/build-opus-wasm.ps1 (or .sh), which compiles " +
+                    "with Emscripten through Ninja. An archive built by CMake's default Visual Studio generator on Windows looks exactly like this."
+                );
+            }
+
+            if (archives.Count > 1)
+            {
+                problems.Add(
+                    $"More than one libopus.a is enabled for WebGL ({string.Join(", ", archives)}), so Opus would be defined twice. Keep " +
+                    "the one in Dissonance 4 Web's Runtime/Plugins/WebGL and disable WebGL on the others in the Plugin Inspector."
+                );
+            }
         }
     }
 }

@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: 613b871ad7912e14c9cc7ae4c2e5feae
+guid: 9b49f239bf3da5848a678f04f2ff9b83
 PluginImporter:
   externalObjects: {}
   serializedVersion: 3
@@ -14,19 +14,12 @@ PluginImporter:
     Any:
       enabled: 0
       settings:
-        Exclude Android: 1
         Exclude Editor: 1
-        Exclude iOS: 1
         Exclude Linux64: 1
         Exclude OSXUniversal: 1
         Exclude WebGL: 0
         Exclude Win: 1
         Exclude Win64: 1
-        Exclude WindowsStoreApps: 1
-    Android:
-      enabled: 0
-      settings:
-        CPU: ARMv7
     Editor:
       enabled: 0
       settings:
@@ -36,14 +29,22 @@ PluginImporter:
     Linux64:
       enabled: 0
       settings:
-        CPU: None
+        CPU: AnyCPU
     OSXUniversal:
       enabled: 0
       settings:
-        CPU: None
+        CPU: AnyCPU
     WebGL:
       enabled: 1
-      settings: {}
+      settings:
+        Architecture: Wasm
+        ExceptionSupport: Any
+        MaxEmscriptenVersion: 
+        MaxUnityVersion: 
+        MinEmscriptenVersion: 
+        MinUnityVersion: 
+        ThreadsSupport: Any
+        Wasm2023: Any
     Win:
       enabled: 0
       settings:
@@ -51,18 +52,7 @@ PluginImporter:
     Win64:
       enabled: 0
       settings:
-        CPU: None
-    WindowsStoreApps:
-      enabled: 0
-      settings:
         CPU: AnyCPU
-    iOS:
-      enabled: 0
-      settings:
-        AddToEmbeddedBinaries: false
-        CPU: AnyCPU
-        CompileFlags:
-        FrameworkDependencies:
-  userData:
-  assetBundleName:
-  assetBundleVariant:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

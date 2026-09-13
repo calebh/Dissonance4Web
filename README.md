@@ -41,7 +41,10 @@ See `Documentation~/Architecture.md` for what each part does and why.
 * Dissonance Voice Chat, and three small patches to its source - applied by a menu item, see below.
 * Mirror, for the Mirror integration. Developed against 96.0.1.
 * MirrorWTransport, for browser clients.
-* CMake, once, to build Opus for WebAssembly. Everything else that build needs ships inside Unity.
+* CMake and [Ninja](https://ninja-build.org) on PATH, only if you need to rebuild Opus for
+  WebAssembly - see step 3. Everything else that build needs ships inside Unity. Ninja is not
+  optional: without it CMake on Windows falls back to Visual Studio, which quietly compiles Opus
+  for x64 instead.
 * A browser with WebTransport and AudioWorklet, served from a secure context (https, or localhost).
 
 ## Installing
@@ -68,7 +71,13 @@ against is reported rather than mangled, and reversible with **Revert Patches**.
 `Documentation~/CorePatches.md` lists them in full, with the reasoning, so they can be applied by
 hand or re-applied after a Dissonance update.
 
-**3. Build Opus for WebAssembly.**
+**3. Check the Opus build matches your Unity.** The package includes a prebuilt
+`Runtime/Plugins/WebGL/libopus.a`, compiled with Emscripten 4.0.20 - the version Unity 6000.5 and
+6000.6 bundle. Your editor's version is in
+`<Unity>/Editor/Data/PlaybackEngines/WebGLSupport/BuildTools/Emscripten/emscripten/emscripten-version.txt`.
+If it matches, there is nothing to do. If it does not - Unity 6000.2 and 6000.3 bundle 3.1.39 -
+rebuild the archive with your editor's toolchain, because an archive from a different Emscripten
+can fail the WebGL link step with errors that do not say so:
 
 ```bash
 powershell -ExecutionPolicy Bypass -File Native~/build-opus-wasm.ps1
@@ -78,9 +87,8 @@ powershell -ExecutionPolicy Bypass -File Native~/build-opus-wasm.ps1
 ./Native~/build-opus-wasm.sh
 ```
 
-This drops `libopus.a` into `Runtime/Plugins/WebGL/`. It uses the Emscripten that ships inside the
-Unity editor rather than a separate emsdk, so the archive matches the toolchain Unity will link it
-with - a mismatch there fails the build with errors that do not say so. See `Native~/README.md`.
+The scripts use the Emscripten inside the Unity editor rather than a separate emsdk, so the rebuilt
+archive matches the toolchain Unity will link it with. See `Native~/README.md`.
 
 **4. Set up the scene.**
 
