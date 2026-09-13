@@ -133,7 +133,7 @@ Its settings:
 | `Echo Cancellation` | Ask the browser to cancel output from the captured signal. Leave on. |
 | `Noise Suppression` | Ask the browser to suppress steady background noise. |
 | `Auto Gain Control` | Ask the browser to normalise the input level. |
-| `Request Microphone Access On Start` | Prompt as soon as the scene loads. Turn off to put the prompt behind a button; see below. |
+| `Microphone Access` | When to ask the player for the microphone: `On Start`, `On First Transmission` (listen-only players are never prompted), or `Manual`. See [Choosing when to ask for the microphone](#choosing-when-to-ask-for-the-microphone). |
 
 ## 6. The player prefab
 
@@ -149,32 +149,89 @@ Do not keep both: they would both try to track the same player.
 Build for WebGL and serve it over https or from localhost. Unity's own **Build And Run** serves
 from localhost, which counts as secure.
 
-Expected console output on a browser client, in order:
+Expected console output on a browser client, with `Microphone Access` left at `On Start`. When the
+browser already remembers a grant for the page:
 
 ```
 [Dissonance4Web] audio worklet ready at 48000Hz
-Requesting browser microphone access for device '<default>'
 [Dissonance4Web] microphone running at 48000Hz
 Started browser microphone capture: 48000Hz, 31ms latency
 ```
 
-On the first visit, the permission prompt takes longer than Dissonance's first attempt to start
-capture, so a line about waiting for access appears in between. That is normal:
+On a first visit, the voice session usually starts while the permission prompt is still up. Capture
+starts anyway and restarts once when the player answers:
 
 ```
-Waiting for the browser to grant microphone access; voice capture will start once it does
-Failed to start microphone capture; local voice transmission will be disabled.
+[Dissonance4Web] audio worklet ready at 48000Hz
+Waiting for the browser to grant microphone access; voice will be sent once it does
 [Dissonance4Web] microphone running at 48000Hz
-The browser granted microphone access; restarting voice capture
+The browser opened the microphone; restarting voice capture
 Started browser microphone capture: 48000Hz, 31ms latency
 ```
 
-The "will be disabled" line is Dissonance's, and it is retracted by the next two.
+With `On First Transmission`, nothing is requested until the player first tries to talk:
 
-## Putting the permission prompt behind a button
+```
+[Dissonance4Web] audio worklet ready at 48000Hz
+Voice capture is ready; the microphone will be opened when this player first transmits
+Requesting microphone access: this player started transmitting
+[Dissonance4Web] microphone running at 48000Hz
+The browser opened the microphone; restarting voice capture
+Started browser microphone capture: 48000Hz, 31ms latency
+```
 
-A browser prompt that appears the instant a page loads is usually refused, and a refusal sticks for
-the session. To ask at a better moment, turn off `Request Microphone Access On Start` and call:
+A player who never talks stops at the second line, and hears everyone regardless.
+
+## Choosing when to ask for the microphone
+
+`Microphone Access` on `Dissonance Web Audio` decides when the browser's permission prompt appears.
+Every setting lets the player hear voice chat; they differ only in when the player is asked to join
+in.
+
+| Setting | The prompt appears | Suits |
+| --- | --- | --- |
+| `On Start` (default) | As the scene loads. | Games where nearly everyone talks. Voice works the first time the player presses the key. |
+| `On First Transmission` | The first time the player tries to send voice. | Games where many players only listen. They never see the prompt. |
+| `Manual` | When your code calls `RequestMicrophoneAccess()`. | A settings screen or an "enable voice" button of your own. |
+
+"Tries to send voice" means the same thing it means to Dissonance: the player is not muted and a
+broadcast trigger has opened a channel - pressing push to talk, standing in an open channel or a
+proximity trigger's range, or code opening a channel directly. Voice activation is the exception;
+see below.
+
+`On First Transmission` costs one thing: **the first press of push to talk sends nothing.** That
+press brings up the prompt, and voice starts once the player has answered. The microphone then
+stays open for the session, so it happens once.
+
+### Voice activation and `On First Transmission`
+
+A voice activation trigger opens its channel when it hears the player speak - and it cannot hear
+anything until the microphone is open. Waiting for it would wait forever, so an enabled, unmuted
+voice activation trigger counts as the player trying to talk, and the prompt appears as soon as the
+voice session starts. That is the same as `On Start`.
+
+To keep listen-only players unprompted in a voice activated game, start the trigger muted and unmute
+it when the player chooses to speak:
+
+```csharp
+public class SpeakToggle : MonoBehaviour
+{
+    public VoiceBroadcastTrigger Trigger; // Mode: Voice Activation, starting muted
+
+    // Wire this to a "speak" toggle.
+    public void SetSpeaking(bool speaking)
+    {
+        // Unmuting is what counts as trying to talk, so the prompt follows within
+        // half a second of the first time this turns speaking on.
+        Trigger.IsMuted = !speaking;
+    }
+}
+```
+
+### Behind a button
+
+A browser prompt that appears the instant a page loads is often refused, and a refusal sticks for
+the session. To ask at a moment of your choosing, set `Microphone Access` to `Manual` and call:
 
 ```csharp
 public class VoiceOptIn : MonoBehaviour
@@ -184,18 +241,26 @@ public class VoiceOptIn : MonoBehaviour
     // Wire this to a button.
     public void EnableVoice()
     {
-        // Browsers only start audio from a real user gesture, and only allow the
-        // microphone prompt to be useful in the same circumstances.
+        // Browsers only start audio from a real user gesture, so this is the place
+        // to resume it - and a prompt that follows the player's own click at least
+        // comes with context.
         WebAudio.ResumeAudio();
         WebAudio.RequestMicrophoneAccess();
     }
 }
 ```
 
-`DissonanceWebAudio.Microphone.State` reports what happened - `Starting`, `Running` or `Failed` -
-and `.Error` carries the browser's own reason for a refusal, which is what to show the player.
-`WebMicrophoneCapture.Retry()` asks again, and forces the capture pipeline to restart so a second
-grant takes effect.
+`MicrophoneAccess` can also be changed at runtime, up until access has been requested. A game that
+lets players opt in to voice without wanting a separate button can start at `Manual` and switch to
+`OnFirstTransmission` when they opt in, so the prompt then waits for their first attempt to talk.
+
+### What happened
+
+`DissonanceWebAudio.Microphone.IsAccessRequested` is false for a player who has not been asked -
+worth showing as a "listening only" indicator. `.State` reports the rest - `Starting`, `Running` or
+`Failed` - and `.Error` carries the browser's own reason when the microphone did not open, which is
+what to show the player. `RequestMicrophoneAccess()` after a refusal asks again, and a grant then
+restarts capture on its own.
 
 ## A microphone picker
 

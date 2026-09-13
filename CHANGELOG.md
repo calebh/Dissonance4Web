@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0
+
+- **`MicrophoneAccessRequest`**: when a browser player is asked for microphone access, set by
+  `Microphone Access` on `DissonanceWebAudio`. `OnStart` (the default, and the previous
+  behaviour), `OnFirstTransmission` (the first time the player tries to send voice, so players who
+  only listen never see the prompt), or `Manual`. Replaces `RequestMicrophoneAccessOnStart`, which
+  is not migrated: a scene that had it on keeps the same behaviour, but one that had it off now
+  asks `OnStart` and should be set to `Manual`.
+- `Manual` now really waits for `RequestMicrophoneAccess()`. Turning off
+  `RequestMicrophoneAccessOnStart` used to defer the prompt only until the player joined a voice
+  session, because starting capture requested access regardless.
+- Joining a voice session before the microphone is open no longer logs Dissonance's "local voice
+  transmission will be disabled" warning, or forces a capture reset once access is granted.
+  Capture starts straight away with the AudioContext's format and restarts once when the
+  microphone opens.
+- A microphone that fails to open is reported as "did not open" rather than "refused", since the
+  same state covers a missing or unplugged device.
+
 ## 0.1.0
 
 First release.

@@ -1,6 +1,6 @@
 {
   "name": "com.placeholder.dissonance4web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "Dissonance 4 Web",
   "description": "Browser (WebGL) support for Dissonance Voice Chat, plus a Mirror integration that runs over MirrorWTransport. Web clients and desktop clients share one Opus voice session with no transcoding anywhere in the path.",
   "unity": "6000.0",
@@ -13,8 +13,10 @@
     "webtransport",
     "opus"
   ],
+  "license": "MIT",
   "author": {
-    "name": "Caleb Helbling"
+    "name": "Caleb Helbling (Extensional Software)",
+    "url": "https://www.extensional.software/"
   },
   "dependencies": {}
 }

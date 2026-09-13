@@ -60,8 +60,9 @@ namespace Dissonance.Web
         [Tooltip("Ask the browser to normalise the input level.")]
         public bool AutoGainControl = true;
 
-        [Tooltip("Ask for microphone access as soon as the scene loads. Turn this off to put the browser permission prompt behind a button of your own, then call RequestMicrophoneAccess().")]
-        public bool RequestMicrophoneAccessOnStart = true;
+        [SerializeField]
+        [Tooltip("When to ask the player for microphone access.\n\nOn Start: as the scene loads, so voice is ready the moment they talk.\n\nOn First Transmission: the first time they try to send voice. Players who only listen are never prompted, and still hear voice chat.\n\nManual: only when RequestMicrophoneAccess() is called, for a prompt behind a button of your own.")]
+        private MicrophoneAccessRequest _microphoneAccess = MicrophoneAccessRequest.OnStart;
 
         private WebMicrophoneCapture _microphone;
 
@@ -76,6 +77,28 @@ namespace Dissonance.Web
         /// </summary>
         public WebMicrophoneCapture Microphone => _microphone;
 
+        /// <summary>
+        /// When to ask the player for microphone access. See
+        /// <see cref="MicrophoneAccessRequest"/>.
+        /// </summary>
+        /// <remarks>
+        /// Can be changed at runtime - to move from Manual to On First Transmission
+        /// once a player has opted in to voice, say - up until access has been
+        /// requested. After that the microphone is open, or refused, and the
+        /// setting has nothing left to decide.
+        /// </remarks>
+        public MicrophoneAccessRequest MicrophoneAccess
+        {
+            get => _microphoneAccess;
+            set
+            {
+                _microphoneAccess = value;
+
+                if (_microphone != null)
+                    _microphone.AccessRequest = value;
+            }
+        }
+
         private void Awake()
         {
             if (!IsWebPlayer)
@@ -88,7 +111,9 @@ namespace Dissonance.Web
 
             // Loading the AudioWorklet module is asynchronous, so start it now
             // rather than when the first player speaks. It is normally ready within
-            // a frame or two, which is well before anyone joins.
+            // a frame or two, which is well before anyone joins. Creating the
+            // AudioContext here also matters to capture: its sample rate is the
+            // format capture starts with before the microphone is opened.
             WebAudioNative.D4W_OutInit();
 
             InstallPreprocessor();
@@ -106,7 +131,8 @@ namespace Dissonance.Web
 
         /// <summary>
         /// Ask the browser for microphone access, prompting the user if they have
-        /// not decided yet. Does nothing outside a Web player.
+        /// not decided yet, whatever <see cref="MicrophoneAccess"/> is set to. Does
+        /// nothing outside a Web player.
         /// </summary>
         /// <remarks>
         /// Worth calling from a button rather than on load: the player gets some
@@ -114,7 +140,8 @@ namespace Dissonance.Web
         /// </remarks>
         public void RequestMicrophoneAccess()
         {
-            _microphone?.RequestAccess();
+            if (_microphone != null)
+                _microphone.RequestAccess();
         }
 
         /// <summary>
@@ -158,7 +185,8 @@ namespace Dissonance.Web
             if (output == null)
                 throw new ArgumentNullException(nameof(output));
 
-            _microphone?.GetDevices(output);
+            if (_microphone != null)
+                _microphone.GetDevices(output);
         }
 
         private void InstallPreprocessor()
@@ -197,7 +225,7 @@ namespace Dissonance.Web
             _microphone.EchoCancellation = EchoCancellation;
             _microphone.NoiseSuppression = NoiseSuppression;
             _microphone.AutoGainControl = AutoGainControl;
-            _microphone.RequestAccessOnStart = RequestMicrophoneAccessOnStart;
+            _microphone.AccessRequest = _microphoneAccess;
 
             if (TryGetComponent<BasicMicrophoneCapture>(out var unityCapture))
             {

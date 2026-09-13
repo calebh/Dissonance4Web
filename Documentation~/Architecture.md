@@ -43,11 +43,33 @@ appends to a one second ring buffer. `UpdateSubscribers`, called by Dissonance o
 drains the ring and hands it on in 10ms blocks - the same size the preprocessing pipeline wants,
 so nothing downstream has to hold a partial frame in the common case.
 
-`getUserMedia` is asynchronous and may put a permission prompt in front of the user, so the first
-`StartCapture` usually returns null - Dissonance's way of being told the microphone is
-unavailable. When the browser hands over a stream, `UpdateSubscribers` returns `true` to ask for a
-pipeline restart and the second `StartCapture` succeeds. A refusal is reported once, with the
-browser's own reason, and `WebMicrophoneCapture.Retry()` exists for a UI that wants to ask again.
+Opening the microphone is decoupled from Dissonance starting capture, because the two happen at
+different times. Dissonance asks for capture as soon as the player joins a voice session;
+`getUserMedia` is asynchronous, may put a permission prompt in front of the player, and - under
+`MicrophoneAccessRequest.OnFirstTransmission` or `Manual` - is not called until later, or ever.
+
+So `StartCapture` succeeds immediately even when the microphone is not open, returning the format
+the microphone *will* have: the capture graph runs in the same AudioContext as playback, so the
+context's sample rate is the microphone's. No audio arrives, and Dissonance sends nothing, which for
+a player who only listens is exactly right. The alternative - returning null until the microphone
+opens, Dissonance's way of being told there is no microphone - disables transmission and logs a
+warning saying so, which is not news worth a warning for someone who never meant to talk.
+
+When the browser does open the microphone, `UpdateSubscribers` returns `true` to restart the
+pipeline rather than letting audio flow into the one built without it. That gives the encoder a
+clean start - one started and stopped while there was no audio has not finished stopping - and
+lets `StartCapture` begin with the microphone's own reported rate.
+
+"First transmission" is judged the way Dissonance judges whether to feed its encoder: not muted,
+and at least one room or player channel open. That covers push to talk, open mic, proximity
+triggers and code that opens channels directly. Voice activation is the exception, because its
+triggers open a channel only when they hear speech and cannot hear anything until the microphone is
+open; an enabled, unmuted voice activation trigger therefore counts as intent in its own right.
+Dissonance keeps its voice activation subscribers in a private list, so those triggers are found by
+a scan, twice a second, only while waiting.
+
+A refusal is reported once, with the browser's own reason, and leaves the player listening only.
+`WebMicrophoneCapture.RequestAccess()` asks again, for a UI that wants to.
 
 ### Preprocessing: `WebPreprocessingPipeline`
 

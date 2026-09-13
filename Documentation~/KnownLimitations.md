@@ -87,6 +87,21 @@ worklet batches 1024 samples (~21ms at 48kHz) before handing them over, and play
 too low and a slow frame becomes an audible gap, because the buffer is only topped up once per
 Unity frame - 33ms apart at 30fps.
 
+### Deferring the microphone prompt has a delay, and does not suit voice activation
+
+`MicrophoneAccessRequest.OnFirstTransmission` spares listen-only players the browser prompt by
+asking only when a player first tries to talk. Two consequences:
+
+* **The first press of push to talk sends nothing.** The prompt appears then, and voice starts
+  only once the player has answered it. After that the microphone stays open for the session, so
+  it happens once.
+* **Voice activation triggers prompt immediately.** A voice activation trigger opens its channel
+  when it hears speech, and it cannot hear anything until the microphone is open - so waiting for
+  it would wait forever. An enabled, unmuted voice activation trigger is treated as the player
+  having opted in, and the prompt appears as soon as the voice session starts. A game that wants
+  listen-only players under voice activation should keep the trigger muted, or disabled, until the
+  player chooses to speak.
+
 ### Device names are hidden until access is granted
 
 Browsers do not reveal microphone labels to a page that has not been granted access. Before that,

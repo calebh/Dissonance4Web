@@ -8,6 +8,41 @@ using UnityEngine;
 namespace Dissonance.Web
 {
     /// <summary>
+    /// When a browser player is asked for microphone access.
+    /// </summary>
+    /// <remarks>
+    /// The values are serialized as integers, so their numbers are part of the
+    /// format: add new ones at the end.
+    /// </remarks>
+    public enum MicrophoneAccessRequest
+    {
+        /// <summary>
+        /// As soon as the component starts. Voice is ready the moment the player
+        /// talks, at the cost of prompting every player, including those who only
+        /// ever listen.
+        /// </summary>
+        OnStart = 0,
+
+        /// <summary>
+        /// The first time this player tries to send voice: pressing push to talk,
+        /// or being in an open channel. Players who only listen are never prompted,
+        /// and hear voice chat either way.
+        /// </summary>
+        /// <remarks>
+        /// A voice activation trigger counts as trying to send voice as soon as it
+        /// is enabled and unmuted, because it can only hear the player through the
+        /// microphone - waiting for it to detect speech would wait forever.
+        /// </remarks>
+        OnFirstTransmission = 1,
+
+        /// <summary>
+        /// Only when <see cref="WebMicrophoneCapture.RequestAccess"/> is called, for a
+        /// project that puts the prompt behind a button of its own.
+        /// </summary>
+        Manual = 2
+    }
+
+    /// <summary>
     /// Captures the microphone in a browser, through getUserMedia and an
     /// AudioWorklet, and feeds the samples into Dissonance.
     /// </summary>
@@ -23,6 +58,13 @@ namespace Dissonance.Web
     /// canceller sits next to the real output device, so unlike Dissonance's own
     /// it also cancels the rest of the game's audio, not just voice.
     ///
+    /// Opening the microphone is decoupled from Dissonance starting capture. As far
+    /// as Dissonance can tell, capture starts as soon as it asks - with the format
+    /// the microphone will have, which is the shared AudioContext's rate - and no
+    /// audio arrives until the browser opens the microphone, which happens when
+    /// <see cref="AccessRequest"/> says it should. A player who is never asked, or
+    /// never answers, simply transmits nothing and still hears everyone.
+    ///
     /// Add this to the same game object as <see cref="DissonanceComms"/> and it
     /// will be picked up automatically. <see cref="DissonanceWebAudio"/> does that
     /// for you on the platforms where it belongs.
@@ -31,6 +73,13 @@ namespace Dissonance.Web
         : MonoBehaviour, IMicrophoneCapture, IMicrophoneDeviceList
     {
         private static readonly Log Log = Logs.Create(LogCategory.Recording, "Web Microphone Capture");
+
+        /// <summary>
+        /// Seconds between searches for voice activation triggers while waiting for
+        /// a first transmission. Finding every trigger in the scene is not free, and
+        /// a trigger being enabled is not something that needs a same-frame answer.
+        /// </summary>
+        private const float TriggerScanInterval = 0.5f;
 
         [Header("Browser audio constraints")]
         [Tooltip("Ask the browser to cancel echo of the output device from the captured signal. Leave this on unless the player is on headphones and you have measured that it hurts.")]
@@ -42,9 +91,9 @@ namespace Dissonance.Web
         [Tooltip("Ask the browser to normalise the input level.")]
         public bool AutoGainControl = true;
 
-        [Header("Startup")]
-        [Tooltip("Ask for microphone access as soon as this component starts. Turn this off to put the browser permission prompt behind a button of your own, then call RequestAccess().")]
-        public bool RequestAccessOnStart = true;
+        [Header("Microphone access")]
+        [Tooltip("When to ask the player for microphone access. On First Transmission spares players who only listen the browser prompt; they still hear voice chat. Manual waits for RequestAccess(). Can be changed at runtime, up until access has been requested.")]
+        public MicrophoneAccessRequest AccessRequest = MicrophoneAccessRequest.OnStart;
 
         private readonly List<IMicrophoneSubscriber> _subscribers = new List<IMicrophoneSubscriber>();
 
@@ -59,11 +108,36 @@ namespace Dissonance.Web
         private int _blockFilled;
 
         private WaveFormat _format;
+
+        /// <summary>
+        /// Whether Dissonance believes capture is running.
+        /// </summary>
         private bool _capturing;
+
+        /// <summary>
+        /// Capture is running from Dissonance's side, but the browser microphone
+        /// is not open yet, so there is no audio to deliver.
+        /// </summary>
+        private bool _awaitingMicrophone;
+
+        /// <summary>
+        /// Latched once this player's microphone should be open, by whichever
+        /// route: the <see cref="AccessRequest"/> policy, or an explicit call. Never
+        /// cleared, so a device change reopens the microphone rather than going
+        /// back to waiting.
+        /// </summary>
+        private bool _accessWanted;
+
+        /// <summary>
+        /// A getUserMedia request is in effect for the current device.
+        /// </summary>
         private bool _accessRequested;
+
+        private bool _unsupported;
         private bool _reportedFailure;
         private bool _warnedAboutSuspendedAudio;
         private WebMicrophoneState _lastState = WebMicrophoneState.Idle;
+        private float _nextTriggerScan;
 
         private DissonanceComms _comms;
 
@@ -80,9 +154,15 @@ namespace Dissonance.Web
         public WebMicrophoneState State => (WebMicrophoneState)WebAudioNative.D4W_MicState();
 
         /// <summary>
-        /// The browser's reason for refusing the microphone, or an empty string.
+        /// The browser's reason for not opening the microphone, or an empty string.
         /// </summary>
         public string Error => WebAudioNative.MicrophoneError;
+
+        /// <summary>
+        /// Whether this player's microphone has been asked for, by any route. False
+        /// means the player has not seen a browser prompt and is listening only.
+        /// </summary>
+        public bool IsAccessRequested => _accessWanted;
 
         private void Awake()
         {
@@ -103,11 +183,8 @@ namespace Dissonance.Web
             if (WebAudioNative.D4W_MicSupported() == 0)
             {
                 Log.Error("This browser does not expose getUserMedia and AudioWorklet, so voice capture is not possible here");
-                return;
+                _unsupported = true;
             }
-
-            if (RequestAccessOnStart)
-                RequestAccess();
         }
 
         private void OnDestroy()
@@ -118,19 +195,47 @@ namespace Dissonance.Web
 
         /// <summary>
         /// Ask the browser for microphone access, prompting the user if they have
-        /// not decided yet.
+        /// not decided yet. Works under any <see cref="AccessRequest"/> setting.
         /// </summary>
         /// <remarks>
-        /// Calling this from a click handler rather than on load gives the player
-        /// some context for the prompt, and browsers remember a refusal for the
-        /// rest of the session.
+        /// After a refusal this makes a fresh request, but whether the player sees a
+        /// prompt again is the browser's decision: many remember a refusal for the
+        /// page until the player changes it in the site settings, and fail the
+        /// request straight away until then. <see cref="Error"/> says so when it
+        /// happens.
         /// </remarks>
         public void RequestAccess()
         {
-            if (!WebAudioNative.IsAvailable)
+            if (!WebAudioNative.IsAvailable || _unsupported)
                 return;
 
-            if (_accessRequested && State != WebMicrophoneState.Failed)
+            _accessWanted = true;
+
+            if (State == WebMicrophoneState.Failed)
+            {
+                // A fresh request, and a fresh look at the state it produces: Update
+                // turns a later grant into the pipeline reset that clears Dissonance's
+                // "cannot start mic" flag.
+                _accessRequested = false;
+                _lastState = WebMicrophoneState.Idle;
+            }
+
+            OpenMicrophone();
+        }
+
+        /// <summary>
+        /// Try the microphone again after it failed to open. The same as
+        /// <see cref="RequestAccess"/>, including its caveat about browsers that
+        /// remember a refusal.
+        /// </summary>
+        public void Retry()
+        {
+            RequestAccess();
+        }
+
+        private void OpenMicrophone()
+        {
+            if (_accessRequested)
                 return;
 
             Log.Debug("Requesting browser microphone access for device '{0}'", Device ?? "<default>");
@@ -156,41 +261,80 @@ namespace Dissonance.Web
             // on every reset.
             var requested = string.IsNullOrEmpty(name) ? null : name;
 
-            // A change of device needs a new media stream, so the browser side has
-            // to be restarted before capture can begin.
             if (requested != Device)
             {
-                Log.Info($"Switching browser microphone to '{requested ?? "<default>"}'");
-
                 Device = requested;
-                WebAudioNative.D4W_MicStop();
-                _accessRequested = false;
+
+                // A stream that is open, or opening, belongs to the old device. It is
+                // reopened below if this player's microphone is wanted at all; if it
+                // is not, there is nothing to close.
+                if (_accessRequested)
+                {
+                    Log.Info($"Switching browser microphone to '{requested ?? "<default>"}'");
+
+                    WebAudioNative.D4W_MicStop();
+                    _accessRequested = false;
+                }
             }
 
-            if (!_accessRequested)
-                RequestAccess();
+            ApplyAccessPolicy();
+            if (_accessWanted && !_unsupported)
+                OpenMicrophone();
 
             var state = State;
-            if (state != WebMicrophoneState.Running)
-            {
-                // Returning null tells Dissonance to leave transmission disabled
-                // for now. Update watches for the browser granting access and asks
-                // for a pipeline reset, which brings us back here.
-                if (state == WebMicrophoneState.Failed)
-                    ReportFailure();
-                else
-                    Log.Info("Waiting for the browser to grant microphone access; voice capture will start once it does");
 
+            if (state == WebMicrophoneState.Failed)
+            {
+                // Returning null makes Dissonance disable transmission. This player
+                // keeps hearing voice chat; Retry is the way back.
+                ReportFailure();
                 return null;
             }
 
-            var sampleRate = WebAudioNative.D4W_MicSampleRate();
-            if (sampleRate <= 0)
+            if (state == WebMicrophoneState.Running)
             {
-                Log.Warn("The browser reported a running microphone with no sample rate; voice capture will retry");
+                var micRate = WebAudioNative.D4W_MicSampleRate();
+                if (micRate <= 0)
+                {
+                    Log.Warn("The browser reported a running microphone with no sample rate; voice capture will retry");
+                    return null;
+                }
+
+                return BeginCapture(micRate, awaitingMicrophone: false);
+            }
+
+            // The microphone is not open yet, because nothing has asked for it or the
+            // browser is still waiting on the player. Start anyway, with the format
+            // it will have: the capture graph runs in the same AudioContext as
+            // playback, so the context's rate is the microphone's rate. The
+            // alternative, returning null until the microphone opens, makes Dissonance
+            // warn that transmission is disabled - which, for a player who is only
+            // listening, is not news worth a warning.
+            var contextRate = WebAudioNative.D4W_OutSampleRate();
+            if (contextRate <= 0)
+            {
+                Log.Warn("The browser has no Web Audio context, so voice capture cannot start");
                 return null;
             }
 
+            if (state == WebMicrophoneState.Starting)
+            {
+                Log.Info("Waiting for the browser to grant microphone access; voice will be sent once it does");
+            }
+            else
+            {
+                Log.Info(
+                    AccessRequest == MicrophoneAccessRequest.Manual
+                        ? "Voice capture is ready; the microphone will be opened when RequestAccess is called"
+                        : "Voice capture is ready; the microphone will be opened when this player first transmits"
+                );
+            }
+
+            return BeginCapture(contextRate, awaitingMicrophone: true);
+        }
+
+        private WaveFormat BeginCapture(int sampleRate, bool awaitingMicrophone)
+        {
             _format = new WaveFormat(sampleRate, 1);
             Latency = TimeSpan.FromMilliseconds(WebAudioNative.D4W_MicLatencyMs());
 
@@ -207,8 +351,10 @@ namespace Dissonance.Web
             DiscardBufferedSamples();
 
             _capturing = true;
+            _awaitingMicrophone = awaitingMicrophone;
 
-            Log.Info($"Started browser microphone capture: {sampleRate}Hz, {(int)Latency.TotalMilliseconds}ms latency");
+            if (!awaitingMicrophone)
+                Log.Info($"Started browser microphone capture: {sampleRate}Hz, {(int)Latency.TotalMilliseconds}ms latency");
 
             return _format;
         }
@@ -219,6 +365,7 @@ namespace Dissonance.Web
                 return;
 
             _capturing = false;
+            _awaitingMicrophone = false;
 
             // The media stream is deliberately left open. Stopping it would make
             // the browser drop the permission grant on some platforms, and the
@@ -249,20 +396,22 @@ namespace Dissonance.Web
         }
 
         /// <summary>
-        /// Watches for the browser granting access after Dissonance had given up
-        /// on the microphone, and asks it to try again.
+        /// Opens the microphone when <see cref="AccessRequest"/> says it is time, and
+        /// watches for the browser granting access after Dissonance had given up.
         /// </summary>
         /// <remarks>
-        /// This cannot live in <see cref="UpdateSubscribers"/>, even though that is
-        /// where Dissonance takes a reset request from, because Dissonance only
-        /// calls it while <see cref="IsRecording"/> is true - and when it is
-        /// waiting for a permission prompt, it is not. So the poll runs on this
-        /// component's own Update instead.
+        /// This cannot all live in <see cref="UpdateSubscribers"/>, because Dissonance
+        /// only calls that while <see cref="IsRecording"/> is true - and after a
+        /// refusal, it is not. So the poll runs on this component's own Update.
         /// </remarks>
         private void Update()
         {
-            if (!WebAudioNative.IsAvailable)
+            if (!WebAudioNative.IsAvailable || _unsupported)
                 return;
+
+            ApplyAccessPolicy();
+            if (_accessWanted)
+                OpenMicrophone();
 
             var state = State;
             if (state == _lastState)
@@ -276,15 +425,107 @@ namespace Dissonance.Web
                 return;
             }
 
+            // While capture is running, UpdateSubscribers handles the microphone
+            // opening. This path is for the capture pipeline having been disabled by
+            // an earlier failure, which only a forced reset clears.
             if (state != WebMicrophoneState.Running || _capturing)
                 return;
 
             Log.Info("The browser granted microphone access; restarting voice capture");
 
-            // Dissonance disabled transmission when StartCapture returned null, and
-            // only a forced reset clears that.
             if (_comms != null)
                 _comms.ResetMicrophoneCapture();
+        }
+
+        /// <summary>
+        /// Latches <see cref="_accessWanted"/> if the <see cref="AccessRequest"/>
+        /// policy says the microphone should be open by now.
+        /// </summary>
+        private void ApplyAccessPolicy()
+        {
+            if (_accessWanted)
+                return;
+
+            switch (AccessRequest)
+            {
+                case MicrophoneAccessRequest.OnStart:
+                    _accessWanted = true;
+                    break;
+
+                case MicrophoneAccessRequest.OnFirstTransmission:
+                    // Only while Dissonance is running a transmission pipeline, which
+                    // is Dissonance's own precondition for sending voice. A channel
+                    // opened in a menu before joining a session is not a player
+                    // trying to talk to anyone.
+                    if (_capturing && TryDetectTransmission(out var reason))
+                    {
+                        Log.Info($"Requesting microphone access: {reason}");
+                        _accessWanted = true;
+                    }
+                    break;
+
+                case MicrophoneAccessRequest.Manual:
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Whether this player is trying to send voice, or would be if there were a
+        /// microphone to hear them.
+        /// </summary>
+        private bool TryDetectTransmission(out string reason)
+        {
+            reason = null;
+
+            if (_comms == null || _comms.IsMuted)
+                return false;
+
+            // The same test Dissonance uses to decide whether to feed its encoder:
+            // not muted, and at least one channel open. That covers push to talk,
+            // open mic, proximity triggers, and code that opens channels directly.
+            if (_comms.RoomChannels.Count + _comms.PlayerChannels.Count > 0)
+            {
+                reason = "this player started transmitting";
+                return true;
+            }
+
+            // Voice activation is the exception. Its triggers open a channel when
+            // they hear speech, and they can only hear speech through the microphone
+            // this is deciding whether to open. An enabled, unmuted voice activation
+            // trigger is the player having opted in to transmitting, so it counts.
+            var now = Time.unscaledTime;
+            if (now < _nextTriggerScan)
+                return false;
+
+            _nextTriggerScan = now + TriggerScanInterval;
+
+            // The FindObjectsSortMode overload is deprecated in newer editors but still
+            // works in every Unity 6 release this package supports.
+#pragma warning disable CS0618
+            var broadcastTriggers = FindObjectsByType<VoiceBroadcastTrigger>(FindObjectsSortMode.None);
+            var proximityTriggers = FindObjectsByType<VoiceProximityBroadcastTrigger>(FindObjectsSortMode.None);
+#pragma warning restore CS0618
+
+            return FindVoiceActivationTrigger(broadcastTriggers, out reason)
+                || FindVoiceActivationTrigger(proximityTriggers, out reason);
+        }
+
+        private static bool FindVoiceActivationTrigger<T>([NotNull] T[] triggers, out string reason)
+            where T : Behaviour, IVoiceBroadcastTrigger
+        {
+            for (var i = 0; i < triggers.Length; i++)
+            {
+                var trigger = triggers[i];
+
+                if (trigger.isActiveAndEnabled && trigger.Mode == CommActivationMode.VoiceActivation && !trigger.IsMuted)
+                {
+                    reason = $"voice activation trigger '{trigger.name}' can only hear this player through the microphone";
+                    return true;
+                }
+            }
+
+            reason = null;
+            return false;
         }
 
         /// <returns>true if the capture pipeline should be reset.</returns>
@@ -293,7 +534,33 @@ namespace Dissonance.Web
             if (!WebAudioNative.IsAvailable || !_capturing)
                 return false;
 
-            if (State != WebMicrophoneState.Running)
+            var state = State;
+
+            if (_awaitingMicrophone)
+            {
+                switch (state)
+                {
+                    case WebMicrophoneState.Running:
+                        // The microphone just opened. Restart rather than feeding the
+                        // pipeline Dissonance built without it, so the encoder starts
+                        // clean: one that was started and stopped while there was no
+                        // audio has not finished stopping, and would otherwise do so on
+                        // the first real audio. StartCapture then begins with the
+                        // microphone's own sample rate.
+                        Log.Info("The browser opened the microphone; restarting voice capture");
+                        return true;
+
+                    case WebMicrophoneState.Failed:
+                        // Restarting lets StartCapture report the failure and disable
+                        // transmission, leaving this player listening only.
+                        return true;
+
+                    default:
+                        return false;
+                }
+            }
+
+            if (state != WebMicrophoneState.Running)
             {
                 // The stream went away underneath us - an unplugged headset, or a
                 // track the browser stopped. Ask for a restart; StartCapture will
@@ -437,31 +704,15 @@ namespace Dissonance.Web
                 return;
             _reportedFailure = true;
 
+            // Not "refused": the same state covers a missing device, an unplugged
+            // one, and a browser that cannot capture. The browser's own reason says
+            // which.
             var error = Error;
             Log.Error(
                 string.IsNullOrEmpty(error)
-                    ? "The browser refused microphone access, so this player cannot transmit voice"
-                    : $"The browser refused microphone access, so this player cannot transmit voice: {error}"
+                    ? "The browser did not open the microphone, so this player cannot transmit voice"
+                    : $"The browser did not open the microphone, so this player cannot transmit voice: {error}"
             );
-        }
-
-        /// <summary>
-        /// Try the microphone again after a refusal, prompting the user once more.
-        /// </summary>
-        /// <remarks>
-        /// Browsers only re-prompt from a user gesture, so call this from a button.
-        /// </remarks>
-        public void Retry()
-        {
-            if (!WebAudioNative.IsAvailable)
-                return;
-
-            _accessRequested = false;
-            _lastState = WebMicrophoneState.Idle;
-
-            // Update takes it from here: it sees the state reach Running and forces
-            // the pipeline reset that clears Dissonance's "cannot start mic" flag.
-            RequestAccess();
         }
     }
 }

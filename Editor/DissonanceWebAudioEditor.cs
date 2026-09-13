@@ -62,6 +62,7 @@ namespace Dissonance.Web.Editor
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Browser microphone", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Access", microphone.IsAccessRequested ? "Requested" : "Not requested (listening only)");
             EditorGUILayout.LabelField("State", microphone.State.ToString());
 
             var error = microphone.Error;
