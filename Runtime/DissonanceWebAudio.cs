@@ -73,6 +73,48 @@ namespace Dissonance.Web
         public static bool IsWebPlayer => WebAudioNative.IsAvailable;
 
         /// <summary>
+        /// The microphones this player can capture from, as names to assign to
+        /// <c>DissonanceComms.MicrophoneName</c>. The counterpart of
+        /// <c>UnityEngine.Microphone.devices</c>, and the same list outside a browser.
+        /// </summary>
+        /// <remarks>
+        /// In a WebGL player the names come from the browser rather than from Unity's
+        /// own web <c>Microphone</c> class: they are the names this package's capture
+        /// resolves, and reading them needs no <c>Application.RequestUserAuthorization</c>.
+        /// They differ from a desktop list in two ways. The browser lists devices
+        /// asynchronously - the listing starts when this component wakes, or on the
+        /// first read if nothing else started it - so a read in the first frame can be
+        /// empty; after that it keeps itself up to date as devices come and go. And
+        /// browsers hide device labels until microphone access has been granted, so
+        /// until then the names are placeholders ("Microphone 1", "Microphone 2") that
+        /// still select the right device.
+        ///
+        /// Like <c>Microphone.devices</c>, this builds a new array on every read.
+        /// </remarks>
+        public static string[] MicrophoneDevices
+        {
+            get
+            {
+                if (IsWebPlayer)
+                {
+                    var devices = new List<string>();
+                    WebAudioNative.GetMicrophoneDevices(devices);
+                    return devices.ToArray();
+                }
+
+                // Compiled out of WebGL players the same way Dissonance compiles out its
+                // own Microphone calls. A WebGL player never reaches this line anyway.
+                // Qualified because this component's own Microphone property would
+                // otherwise shadow Unity's class.
+#if !UNITY_WEBGL || UNITY_EDITOR
+                return UnityEngine.Microphone.devices;
+#else
+                return Array.Empty<string>();
+#endif
+            }
+        }
+
+        /// <summary>
         /// The browser capture component, or null outside a Web player.
         /// </summary>
         public WebMicrophoneCapture Microphone => _microphone;

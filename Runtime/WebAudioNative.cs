@@ -73,6 +73,32 @@ namespace Dissonance.Web
             return ReadString((buffer, capacity) => D4W_MicDeviceName(index, buffer, capacity));
         }
 
+        /// <summary>
+        /// Adds the label of every audio input device the browser reports to
+        /// <paramref name="output"/>. Adds nothing outside a WebGL player.
+        /// </summary>
+        /// <remarks>
+        /// The browser lists devices asynchronously and the plugin caches the answer,
+        /// refreshing it as devices come and go. The first read starts that listing
+        /// if nothing has yet, so it can come back empty.
+        /// </remarks>
+        public static void GetMicrophoneDevices(System.Collections.Generic.List<string> output)
+        {
+            if (output == null)
+                throw new ArgumentNullException(nameof(output));
+
+            if (!IsAvailable)
+                return;
+
+            var count = D4W_MicDeviceCount();
+            for (var i = 0; i < count; i++)
+            {
+                var name = MicrophoneDeviceName(i);
+                if (!string.IsNullOrEmpty(name))
+                    output.Add(name);
+            }
+        }
+
         private static string ReadString(Func<byte[], int, int> read)
         {
             var length = read(StringBuffer, StringBufferSize);

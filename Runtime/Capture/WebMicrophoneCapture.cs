@@ -584,19 +584,7 @@ namespace Dissonance.Web
 
         public void GetDevices(List<string> output)
         {
-            if (output == null)
-                throw new ArgumentNullException(nameof(output));
-
-            if (!WebAudioNative.IsAvailable)
-                return;
-
-            var count = WebAudioNative.D4W_MicDeviceCount();
-            for (var i = 0; i < count; i++)
-            {
-                var name = WebAudioNative.MicrophoneDeviceName(i);
-                if (!string.IsNullOrEmpty(name))
-                    output.Add(name);
-            }
+            WebAudioNative.GetMicrophoneDevices(output);
         }
 
         private void DrainSamples()

@@ -265,15 +265,22 @@ restarts capture on its own.
 ## A microphone picker
 
 `DissonanceComms.GetMicrophoneDevices` returns nothing in a Web player; it is compiled around
-Unity's `Microphone` class. Use the component instead:
+Unity's `Microphone` class. Use `DissonanceWebAudio.MicrophoneDevices` instead - a static
+counterpart of `Microphone.devices` that returns the browser's microphones in a Web player and
+`Microphone.devices` everywhere else, so one picker serves both:
 
 ```csharp
-var devices = new List<string>();
-webAudio.GetMicrophoneDevices(devices);
+var devices = DissonanceWebAudio.MicrophoneDevices;
 
 // Assign the chosen one the usual way.
 comms.MicrophoneName = devices[index];
 ```
+
+In a browser this is the browser's own list, not Unity's web `Microphone.devices`: these are the
+names Dissonance 4 Web's capture resolves, and reading them needs no
+`Application.RequestUserAuthorization`. The browser lists devices asynchronously, so a read in the
+first frame can be empty; after that the list keeps itself up to date as devices are plugged in and
+removed.
 
 Browsers hide device labels until access has been granted once. Before that the list contains
 placeholder names - "Microphone 1", "Microphone 2" - which still select the right device, so a

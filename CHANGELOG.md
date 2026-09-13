@@ -17,6 +17,9 @@
   microphone opens.
 - A microphone that fails to open is reported as "did not open" rather than "refused", since the
   same state covers a missing or unplugged device.
+- `DissonanceWebAudio.MicrophoneDevices`: a static counterpart of `Microphone.devices`. Returns the
+  browser's microphones in a WebGL player - the names this package's capture resolves, readable
+  without `Application.RequestUserAuthorization` - and `Microphone.devices` everywhere else.
 
 ## 0.1.0
 
