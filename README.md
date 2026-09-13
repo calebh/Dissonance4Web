@@ -92,18 +92,16 @@ archive matches the toolchain Unity will link it with. See `Native~/README.md`.
 
 **4. Set up the scene.**
 
-* On the `NetworkManager` object, add **Web Transport Transport** and assign it to `Transport`.
-* On the object carrying `DissonanceComms`, add **Dissonance Web Audio**. If you do not already have a
-**Mirror Ignorance Comms Network**, add **Mirror WTransport Comms Network**. You only need one of these.
+* On the `NetworkManager` object, add **Web Transport Transport** and assign it to `Transport`. If you have
+a game that accepts both desktop and web clients, use the multiplex Mirror transport.
+* On the object carrying `DissonanceComms`, add **Dissonance Web Audio**. If you do not already have a **Mirror Ignorance Comms Network**, add **Mirror WTransport Comms Network** as well. You only need one of these.
 In my game I use a multiplex transport to support both of these transports, so I only have the Ignorance Comms.
-* On the player prefab, add **Mirror WTransport Player** for positional voice.
+* If you do not already have a **MirrorIgnorancePlayer** script on your player's gameobject, attach
+a **MirrorWTransportPlayer** to your gameobject to track the position. You only need one of these.
 
-That is all the channel setup there is, because the comms network defaults to Mirror's own two
-channels - reliable (0) for session setup and text, unreliable (1) for voice - and every transport
-already delivers those correctly. **Reliable Channel** and **Unreliable Channel** on the comms
-network give Dissonance ids of its own instead, if you would rather voice was batched and accounted
-for separately; the inspector then says what your transport needs, and Dissonance checks it at
-startup.
+Double check that Dissonance is set to have access to a reliable and unreliable channel. In my game,
+I have two extra channels specifically for Dissonance which I set by editing the MirrorIgnoranceCommsNetwork.cs
+script.
 
 `Dissonance Web Audio` does nothing outside a WebGL player, so leave it in the scene for every
 build target; one scene serves desktop and web.

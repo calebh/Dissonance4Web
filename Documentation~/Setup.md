@@ -1,3 +1,8 @@
+Dissonance4Web allows projects that use Dissonance and Mirror to voice chat with each other
+from web to web, other platforms (including desktop) to web, web to other platforms, and
+other platforms to other platforms. In other words, the web becomes a first class citizen
+in the Dissonance framework with this library.
+
 # Setup
 
 A walkthrough from an empty project to a browser and a desktop player talking to each other.
@@ -77,11 +82,9 @@ In practice a voice packet is nearer 150 bytes.
 
 On the game object carrying `DissonanceComms`:
 
-* **Mirror WTransport Comms Network** - the Dissonance integration for Mirror.
+* **Mirror WTransport Comms Network** or **MirrorIgnoranceCommsNetwork** if you are multiplexing
+with Ignorance. Do not use both - only one comms network is needed.
 * **Dissonance Web Audio** - the browser audio pipeline.
-
-Remove `MirrorIgnoranceCommsNetwork` if the project had it; two comms networks on one object will
-not work.
 
 ### Channels
 
@@ -138,26 +141,10 @@ Add **Mirror WTransport Player** to the player prefab, alongside its `NetworkIde
 what gives Dissonance a position to attenuate and pan voice by, and what ties a Mirror network
 object to a Dissonance player name.
 
-If the project used `MirrorIgnorancePlayer`, replace it. Do not keep both: they would both try to
-track the same player.
+If this prefab already uses a `MirrorIgnorancePlayer`, choose one to use. They are mostly identical.
+Do not keep both: they would both try to track the same player.
 
-## 7. Certificates
-
-WebTransport is always encrypted, so there is no plaintext mode for development. MirrorWTransport's
-README covers this properly; the short version is that a development server generates a
-self-signed certificate on every start and logs its SHA-256 hash, which the client has to pin in
-`Client Certificate Hash`. The hash changes on every restart and on every rotation, so anything
-other than an editor-to-editor test needs to fetch the current one rather than hold on to one -
-which usually means the same master server that hands out the server list.
-
-Two things that bite here specifically:
-
-* The page hosting the WebGL build must be a **secure context**: https, or localhost. Without it
-  neither `WebTransport` nor `AudioWorklet` exists, and voice will be silent with an error in the
-  browser console.
-* WebTransport needs **UDP** open on the server port, not TCP.
-
-## 8. Running it
+## 7. Running it
 
 Build for WebGL and serve it over https or from localhost. Unity's own **Build And Run** serves
 from localhost, which counts as secure.
