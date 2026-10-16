@@ -1,5 +1,5 @@
 {
-  "name": "com.placeholder.dissonance4web",
+  "name": "software.extensional.dissonance4web",
   "version": "0.2.0",
   "displayName": "Dissonance 4 Web",
   "description": "Browser (WebGL) support for Dissonance Voice Chat, plus a Mirror integration that runs over MirrorWTransport. Web clients and desktop clients share one Opus voice session with no transcoding anywhere in the path.",
